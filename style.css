@@ -1,0 +1,23 @@
+body {
+    margin: 0; /* Remove default spacing */
+    overflow: hidden; /* Prevent scrollbars if canvas fits */
+    background-color: #1a1a1a; /* Dark background */
+    display: flex; /* Arrange canvas and panel */
+    align-items: flex-start; 
+}
+
+#mainCanvas {
+    border: 1px solid #555; /* Make canvas boundary visible */
+    display: block; /* Ensure it behaves as a block element */
+}
+
+#controlPanel {
+    width: 200px; /* Example width */
+    padding: 10px;
+    background-color: #2a2a2a;
+    color: #eee;
+    margin-left: 10px;
+    border: 1px solid #555;
+    height: 598px; /* Match canvas height minus borders */
+    overflow-y: auto; /* Add scroll if content exceeds height */
+}
