@@ -15,18 +15,11 @@ export default class ResourceNode {
 
     gather() {
         if (this.material > 0) {
-            // Potential Minor Issue: If material is > 0 but < Config.gatherAmount,
-            // this still returns Config.gatherAmount, even though less was actually
-            // removed in the final step before hitting 0.
             const initialMaterial = this.material; // Store material before decrementing
             this.material -= Config.gatherAmount; // CHECK: Config var exists? Assumed yes.
             if (this.material < 0) {
                  this.material = 0;
             }
-            // Option 1 (Current): Return configured amount. Simple, slightly inaccurate on last gather.
-            // return Config.gatherAmount;
-
-            // Option 2 (More Accurate): Return the actual amount removed.
             const amountGathered = initialMaterial - this.material;
             return amountGathered;
 

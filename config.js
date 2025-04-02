@@ -54,8 +54,8 @@ export const startingResourceNodes = 30;
 export const materialPerNode = 50; // Amount of 'material' in each node
 export const gatherAmount = 1;     // Material gathered per 'tick' or action
 export const gatherTime = 30;      // Frames/updates required to gather one unit
-export const markerCost = 25;      // Material cost for a Tribal Marker
-export const buildTime = 150;      // Frames/updates needed to build a Marker
+export const markerCost = { material: 10 }; // Cost for a tribal marker
+export const markerBuildTime = 100;      // Frames/updates needed to build a Marker
 
 // --- Structure Specifics ---
 export const shelterCost = { material: 40 }; // Shelter costs materials
@@ -63,6 +63,23 @@ export const shelterBuildTime = 200;
 export const shelterSize = 20;
 export const shelterEffectRadius = 50;      // How far the shelter's effect reaches
 export const shelterEnergySave = 0.02;    // Amount of energy decay reduced nearby
+
+export const farmCost = { material: 60 }; // Example cost
+export const farmBuildTime = 250;
+export const farmSize = 25;
+export const farmFoodGenerationRate = 0.05; // Food units per frame
+export const wallCost = { material: 15 }; // Walls are relatively cheap but numerous
+export const wallBuildTime = 100;
+export const wallSegmentSize = 10; // How wide/tall a single wall segment is
+export const wallHealth = 100;
+
+export const towerCost = { material: 50, knowledge: 20 }; // Towers cost more
+export const towerBuildTime = 300;
+export const towerSize = 18;
+export const towerHealth = 150;
+export const towerAttackDamage = 4;
+export const towerAttackRange = 100;
+export const towerAttackCooldown = 90; // Slower than creatures maybe
 
 // --- Knowledge & Tech ---
 export const knowledgePerCreatureTick = 0.001; // Passive Knowledge gain per creature per frame (can link to Intelligence later)
@@ -74,7 +91,19 @@ export const techTree = {
         prereqs: [],             // No prerequisites for the first tech
         unlocks: ['Shelter']     // What building does it unlock?
     },
-    // Add more techs later: 'BasicTools', 'Walls', etc.
+	
+    'Agriculture': {
+        name: 'Agriculture',
+        cost: { knowledge: 100 }, // Example cost
+        prereqs: [], // Or ['BasicConstruction'] ?
+        unlocks: ['Farm']
+    },
+    'BasicDefenses': {
+        name: 'Basic Defenses',
+        cost: { knowledge: 75 }, // Example cost
+        prereqs: ['BasicConstruction'], // Requires basic building knowledge
+        unlocks: ['Wall', 'GuardTower']
+    },
 };
 
 

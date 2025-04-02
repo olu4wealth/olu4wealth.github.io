@@ -12,12 +12,68 @@ body {
 }
 
 #controlPanel {
-    width: 200px; /* Example width */
-    padding: 10px;
+    width: 250px; /* Slightly wider maybe */
+    padding: 15px;
     background-color: #2a2a2a;
     color: #eee;
     margin-left: 10px;
     border: 1px solid #555;
-    height: 598px; /* Match canvas height minus borders */
-    overflow-y: auto; /* Add scroll if content exceeds height */
+    height: 598px;
+    overflow-y: auto;
+    font-family: sans-serif;
+    font-size: 13px;
 }
+
+#controlPanel h3, #controlPanel h4 {
+    margin-top: 15px;
+    margin-bottom: 5px;
+    color: #aaa;
+    border-bottom: 1px solid #444;
+    padding-bottom: 3px;
+}
+#controlPanel h3:first-child { margin-top: 0; }
+
+
+.control-group {
+    margin-bottom: 12px;
+    display: flex;
+    flex-wrap: wrap; /* Allow wrapping */
+    align-items: center;
+}
+
+.control-group label {
+    display: block;
+    margin-bottom: 3px;
+    color: #ccc;
+    width: 100%; /* Make label take full width */
+}
+
+.control-group input[type="range"] {
+    flex-grow: 1; /* Allow slider to take available space */
+    margin-right: 10px;
+    height: 5px;
+    cursor: pointer;
+}
+
+.control-group span {
+    min-width: 35px; /* Ensure space for value */
+    text-align: right;
+    font-weight: bold;
+    color: lightblue;
+}
+
+ .control-group button {
+     padding: 3px 8px;
+     margin-left: auto; /* Push button to the right */
+     cursor: pointer;
+     background-color: #444;
+     border: 1px solid #666;
+     color: #eee;
+ }
+ .control-group button:hover {
+     background-color: #555;
+ }
+ .control-group button.active {
+      background-color: #363;
+      border-color: #585;
+ }
