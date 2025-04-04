@@ -7,206 +7,229 @@ const CreatureState = {
     WANDERING: 'wandering',
     SEEKING_FOOD: 'seeking_food',
     SEEKING_ENEMY: 'seeking_enemy',
-    FIGHTING: 'fighting',
+    FIGHTING: 'fighting', // Maybe combine with seeking_enemy later
     GATHERING: 'gathering',
     BUILDING: 'building',
-    SEEKING_DROPOFF: 'seeking_dropoff', // <<< NEW STATE
     // FLEEING: 'fleeing' // Future state
 };
 
 export default class Creature {
-    constructor(x, y, energy = null, genes = null, tribeId = null, currentBaseAggression = Config.baseAggression) {
+    // Add tribeId parameter, default to null for initial creatures
+    constructor(x, y, energy = null, genes = null, tribeId = null) {
         this.x = x; // Center X
         this.y = y; // Center Y
         this.isAlive = true;
-
-        // --- Timers ---
+        // Initialize timers (Only once)
         this.reproductionTimer = Math.random() * Config.reproductionCooldown;
         this.attackCooldown = 0; // Ready to attack initially
         this.gatherTimer = 0;
         this.buildTimer = 0;
         this.damageTakenVisualTimer = 0; // For flashing red effect
-
+		
         // --- Tribe Affiliation ---
         this.tribeId = tribeId !== null ? tribeId : Math.floor(Math.random() * Config.numberOfTribes);
 
         // --- Genetics ---
         if (genes) {
             this.genes = { ...genes };
-            this.mutate(); // Apply mutation using simState rates passed during reproduction
+            this.mutate(); // Apply mutation AFTER assigning tribe
         } else {
-            // Initialize with base genes + slight random variation
+            // Initialize base genes + random variation
             this.genes = {
                 speed: Config.baseSpeed * (1 + (Math.random() - 0.5) * 0.2),
                 perception: Config.basePerceptionRadius * (1 + (Math.random() - 0.5) * 0.2),
                 size: Config.baseCreatureSize * (1 + (Math.random() - 0.5) * 0.2),
-                aggression: currentBaseAggression * (1 + (Math.random() - 0.5) * 0.4),
+				aggression: Config.baseAggression * (1 + (Math.random() - 0.5) * 0.4),
             };
-            this.validateGenes();
+             // Ensure initial genes are valid
+            this.genes.speed = Math.max(0.1, this.genes.speed);
+            this.genes.perception = Math.max(10, this.genes.perception);
+            this.genes.size = Math.max(Config.baseCreatureSize / 2, this.genes.size);
+            this.genes.aggression = Math.max(0, Math.min(1, this.genes.aggression)); // Clamp 0-1
         }
 
-        // --- Phenotype & Combat Stats (Derived from genes) ---
-        // Initialize health here BEFORE updatePhenotype sets maxHealth
-        this.health = Config.baseHealth;
-        this.updatePhenotype(); // Calculate speed, size, color, combat stats, maxCarry etc.
+        // --- Phenotype & Combat Stats ---
+        this.speed = this.genes.speed;
+        this.perceptionRadius = this.genes.perception;
+        this.size = this.genes.size;
+        this.aggression = this.genes.aggression;
+
+        this.maxHealth = Config.baseHealth + Math.max(0, this.genes.size - Config.baseCreatureSize) * Config.healthPerSize;
+        this.health = this.maxHealth;
+        this.attackDamage = Config.baseAttackDamage + Math.max(0, this.genes.size - Config.baseCreatureSize) * Config.damagePerSize;
+        this.attackReach = this.size / 2 + Config.attackRange;
+
+        // Assign color based on Tribe + Genes
+        this.assignColor();
 
         // --- Properties for Quadtree Library ---
         this.width = this.size;
         this.height = this.size;
 
         // --- Energy ---
-        this.energyDecay = Config.energyDecayRate * (this.size / Config.baseCreatureSize); // Initial decay based on size
+        this.energyDecay = Config.energyDecayRate * (this.size / Config.baseCreatureSize);
         this.energy = energy !== null ? energy : (Config.maxEnergy / 2 + Math.random() * (Config.maxEnergy / 2));
 
         // --- Movement ---
-        this.dx = 0; // Initial dx/dy set by update logic
-        this.dy = 0;
-        // this.normalizeMovement(); // Movement vector calculated in update based on state
+        this.dx = (Math.random() - 0.5);
+        this.dy = (Math.random() - 0.5);
+        this.normalizeMovement(); // Initialize movement vector based on speed
 
         // --- State Properties ---
         this.state = CreatureState.WANDERING;
         this.targetResource = null;
         this.targetBuildSite = null;
-        this.targetEnemy = null;
-        this.targetFood = null; // Keep track of food target
-        this.targetDropoff = null; // <<< NEW: Target for dropping off resources
-
-        // --- Resource Carrying ---
-        this.carryingMaterial = 0; // <<< NEW: Amount currently carried
-        // maxCarryAmount is set in updatePhenotype based on size
-
+        this.targetEnemy = null; // CORRECTED: Initialize targetEnemy
+		
         // --- Bonus Effects Tracking ---
-        this.shelterBonus = 0;
+        this.shelterBonus = 0; // Reset each frame before update
     }
 
-    // --- Helper: Ensures gene values are within valid ranges ---
-    validateGenes() {
-        this.genes.speed = Math.max(0.1, this.genes.speed);
-        this.genes.perception = Math.max(10, this.genes.perception);
-        this.genes.size = Math.max(Config.baseCreatureSize / 2, this.genes.size);
-        this.genes.size = Math.min(Config.baseCreatureSize * 2.5, this.genes.size); // Allow slightly larger max size maybe
-        this.genes.aggression = Math.max(0, Math.min(1, this.genes.aggression));
+    assignColor() {
+        // Base hue from tribe
+        const baseHue = Config.tribeColors[this.tribeId % Config.tribeColors.length];
+        // Modify saturation/lightness based on genes
+        const saturation = 70 + (this.genes.speed / Config.baseSpeed - 1) * 20;
+        const lightness = 60 - (this.genes.size / Config.baseCreatureSize - 1) * 15;
+
+        this.color = `hsl(${baseHue}, ${Math.max(40, Math.min(100, saturation))}%, ${Math.max(30, Math.min(70, lightness))}%)`;
     }
 
-    // --- Helper: Updates phenotype (expressed traits) based on genes ---
-    updatePhenotype() {
+    mutate() {
+        // Mutate Speed
+        if (Math.random() < Config.mutationRate) {
+            this.genes.speed *= (1 + (Math.random() - 0.5) * 2 * Config.mutationAmount);
+            this.genes.speed = Math.max(0.1, this.genes.speed);
+        }
+        // Mutate Perception
+        if (Math.random() < Config.mutationRate) {
+            this.genes.perception *= (1 + (Math.random() - 0.5) * 2 * Config.mutationAmount);
+            this.genes.perception = Math.max(10, this.genes.perception);
+        }
+        // Mutate Size
+        if (Math.random() < Config.mutationRate) {
+            this.genes.size *= (1 + (Math.random() - 0.5) * 2 * Config.mutationAmount);
+            this.genes.size = Math.max(Config.baseCreatureSize / 2, this.genes.size);
+            this.genes.size = Math.min(Config.baseCreatureSize * 2, this.genes.size);
+        }
+        // Mutate Aggression
+        if (Math.random() < Config.mutationRate) {
+           this.genes.aggression *= (1 + (Math.random() - 0.5) * 2 * Config.mutationAmount);
+           this.genes.aggression = Math.max(0, Math.min(1, this.genes.aggression)); // Clamp 0-1
+        }
+
+        // Update phenotype after mutation
         this.speed = this.genes.speed;
         this.perceptionRadius = this.genes.perception;
         this.size = this.genes.size;
         this.aggression = this.genes.aggression;
 
-        // Recalculate combat stats
-        const sizeFactor = Math.max(0, this.genes.size - Config.baseCreatureSize);
-		const oldMaxHealth = this.maxHealth; // Store old max health
-        this.maxHealth = Config.baseHealth + sizeFactor * Config.healthPerSize;
-        // Adjust current health proportionally if max health changed
-        if (this.health && oldMaxHealth && oldMaxHealth > 0 && this.maxHealth !== oldMaxHealth) {
-             this.health = (this.health / oldMaxHealth) * this.maxHealth;
-        }
-        this.health = Math.min(this.health || this.maxHealth, this.maxHealth); // Ensure health doesn't exceed new max
-        this.attackDamage = Config.baseAttackDamage + sizeFactor * Config.damagePerSize;
+        // Recalculate combat stats if size changed
+        this.maxHealth = Config.baseHealth + Math.max(0, this.genes.size - Config.baseCreatureSize) * Config.healthPerSize;
+        // Note: Health is NOT reset to maxHealth on mutation
+        this.attackDamage = Config.baseAttackDamage + Math.max(0, this.genes.size - Config.baseCreatureSize) * Config.damagePerSize;
         this.attackReach = this.size / 2 + Config.attackRange;
-
-        // Update quadtree dims
+        // Update quadtree dims if size changed
         this.width = this.size;
         this.height = this.size;
-
-        // Update energy decay based on size
+        // Update energy decay if size changed
         this.energyDecay = Config.energyDecayRate * (this.size / Config.baseCreatureSize);
 
-        // --- NEW: Update max carrying capacity based on size ---
-        // Example: Base capacity + bonus for size
-        this.maxCarryAmount = 5 + Math.floor(sizeFactor * 1.5); // Adjust formula as needed
-
-        // Recalculate color
+        // Recalculate color based on potentially new genes
         this.assignColor();
     }
 
-    assignColor() {
-        const baseHue = Config.tribeColors[this.tribeId % Config.tribeColors.length];
-        const saturation = 70 + (this.genes.speed / Config.baseSpeed - 1) * 20;
-        const lightness = 60 - (this.genes.size / Config.baseCreatureSize - 1) * 15;
-        this.color = `hsl(${baseHue}, ${Math.max(40, Math.min(100, saturation))}%, ${Math.max(30, Math.min(70, lightness))}%)`;
-    }
-
-    // Accepts dynamic mutation rates from simState
-    mutate(mutationRate = Config.mutationRate, mutationAmount = Config.mutationAmount) {
-        if (Math.random() < mutationRate) this.genes.speed *= (1 + (Math.random() - 0.5) * 2 * mutationAmount);
-        if (Math.random() < mutationRate) this.genes.perception *= (1 + (Math.random() - 0.5) * 2 * mutationAmount);
-        if (Math.random() < mutationRate) this.genes.size *= (1 + (Math.random() - 0.5) * 2 * mutationAmount);
-        if (Math.random() < mutationRate) this.genes.aggression *= (1 + (Math.random() - 0.5) * 2 * mutationAmount);
-        this.validateGenes();
-        this.updatePhenotype(); // Update traits after mutation
-    }
-
     normalizeMovement() {
-        // This was previously used to set dx/dy based on speed
-        // Now, dx/dy are calculated directly in the state logic using speed
-        // This function might not be needed, or could be used differently
-        // For now, we'll calculate dx/dy directly where needed.
+        const magnitude = Math.sqrt(this.dx * this.dx + this.dy * this.dy);
+        if (magnitude > 0) {
+            this.dx = (this.dx / magnitude) * this.speed;
+            this.dy = (this.dy / magnitude) * this.speed;
+        } else {
+            // If no movement, give a slight random nudge based on speed
+            this.dx = (Math.random() - 0.5) * this.speed * 0.5;
+            this.dy = (Math.random() - 0.5) * this.speed * 0.5;
+        }
     }
-
-    // --- Target Finding Methods ---
 
     findNearestFood(foodQuadTree) {
-        this.targetFood = null; // Reset target
         let nearestFood = null;
-        const queryBounds = { x: this.x - this.perceptionRadius, y: this.y - this.perceptionRadius, width: this.perceptionRadius * 2, height: this.perceptionRadius * 2 };
+        const queryBounds = {
+            x: this.x - this.perceptionRadius,
+            y: this.y - this.perceptionRadius,
+            width: this.perceptionRadius * 2,
+            height: this.perceptionRadius * 2
+        };
         const candidates = foodQuadTree.retrieve(queryBounds);
         let minDistanceSq = this.perceptionRadius * this.perceptionRadius;
 
         for (const food of candidates) {
-            const foodCenterX = food.x + food.width / 2;
-            const foodCenterY = food.y + food.height / 2;
-            const dx = foodCenterX - this.x;
-            const dy = foodCenterY - this.y;
+            const dx = food.x + food.width / 2 - this.x;
+            const dy = food.y + food.height / 2 - this.y;
             const distanceSq = dx * dx + dy * dy;
             if (distanceSq < minDistanceSq) {
                 minDistanceSq = distanceSq;
                 nearestFood = food;
             }
         }
-        this.targetFood = nearestFood; // Store the found target
         return nearestFood;
     }
 
     findEnemyTarget(creatureQuadTree) {
-        // this.targetEnemy = null; // Resetting target here might cause issues if currently fighting
         let nearestEnemy = null;
         const perceptionSq = this.perceptionRadius * this.perceptionRadius;
         let minDistanceSq = perceptionSq;
-        const queryBounds = { x: this.x - this.perceptionRadius, y: this.y - this.perceptionRadius, width: this.perceptionRadius * 2, height: this.perceptionRadius * 2 };
+        const queryBounds = {
+            x: this.x - this.perceptionRadius,
+            y: this.y - this.perceptionRadius,
+            width: this.perceptionRadius * 2,
+            height: this.perceptionRadius * 2
+        };
         const candidatesBounds = creatureQuadTree.retrieve(queryBounds);
 
         for (const bounds of candidatesBounds) {
             const otherCreature = bounds.ref;
-            if (!otherCreature || otherCreature === this || !otherCreature.isAlive || otherCreature.tribeId === this.tribeId) {
+            if (otherCreature === this || !otherCreature.isAlive) {
                 continue;
             }
-            const dx = otherCreature.x - this.x;
-            const dy = otherCreature.y - this.y;
-            const distanceSq = dx * dx + dy * dy;
-            if (distanceSq < minDistanceSq) {
-                minDistanceSq = distanceSq;
-                nearestEnemy = otherCreature;
+            if (otherCreature.tribeId !== this.tribeId) {
+                const dx = otherCreature.x - this.x;
+                const dy = otherCreature.y - this.y;
+                const distanceSq = dx * dx + dy * dy;
+                if (distanceSq < minDistanceSq) {
+                    minDistanceSq = distanceSq;
+                    nearestEnemy = otherCreature;
+                }
             }
         }
-        // Only update target if a new one is found or none exists?
-        // If currently fighting, we might want to stick to the current target unless it dies/flees.
-        // Let state logic handle target assignment more carefully.
         return nearestEnemy;
     }
 
-    findNearestResource(resourceQuadTree) {
-        // this.targetResource = null; // Don't reset if already gathering? State logic handles this.
-        let nearestNode = null;
-        const perceptionSq = this.perceptionRadius * this.perceptionRadius;
-        let minDistanceSq = perceptionSq;
-        const queryBounds = { x: this.x - this.perceptionRadius, y: this.y - this.perceptionRadius, width: this.perceptionRadius * 2, height: this.perceptionRadius * 2 };
-        const candidates = resourceQuadTree.retrieve(queryBounds);
+    takeDamage(amount) {
+        if (!this.isAlive) return;
+        this.health -= amount;
+        this.damageTakenVisualTimer = 10;
+        if (this.health <= 0) {
+            this.health = 0;
+            this.isAlive = false;
+            console.log(`Tribe ${this.tribeId} creature died in combat!`);
+        }
+    }
 
-        for (const node of candidates) {
-             if (!node || node.isEmpty()) continue;
+    findNearestResource(resourceQuadTree) {
+         let nearestNode = null;
+         const perceptionSq = this.perceptionRadius * this.perceptionRadius;
+         let minDistanceSq = perceptionSq;
+         // CORRECTED: Included 'y' coordinate
+         const queryBounds = {
+            x: this.x - this.perceptionRadius,
+            y: this.y - this.perceptionRadius, // Added missing 'y'
+            width: this.perceptionRadius * 2,
+            height: this.perceptionRadius * 2
+         };
+         const candidates = resourceQuadTree.retrieve(queryBounds);
+
+         for (const node of candidates) {
+             if (node.isEmpty()) continue;
              const nodeCenterX = node.x + node.width / 2;
              const nodeCenterY = node.y + node.height / 2;
              const dx = nodeCenterX - this.x;
@@ -224,8 +247,7 @@ export default class Creature {
         let nearestSite = null;
         let minDistanceSq = this.perceptionRadius * this.perceptionRadius;
         for (const site of structureList) {
-            // Check if it's incomplete AND belongs to the same tribe
-            if (site && !site.isComplete && site.tribeId === this.tribeId) {
+            if (!site.isComplete && site.tribeId === this.tribeId) {
                 const dx = site.x - this.x;
                 const dy = site.y - this.y;
                 const distanceSq = dx * dx + dy * dy;
@@ -237,499 +259,363 @@ export default class Creature {
         }
         return nearestSite;
     }
-
-    // --- NEW: Find nearest structure that accepts resource drop-offs ---
-    findNearestDropoff(structureQuadTree) { // Pass structure Quadtree
-        this.targetDropoff = null; // Reset target
-        let nearestDropoff = null;
-        let minDistanceSq = this.perceptionRadius * this.perceptionRadius * 4; // Search wider for dropoff?
-        const queryBounds = {
-            x: this.x - this.perceptionRadius * 2,
-            y: this.y - this.perceptionRadius * 2,
-            width: this.perceptionRadius * 4,
-            height: this.perceptionRadius * 4
-        };
-
-        const candidatesBounds = structureQuadTree.retrieve(queryBounds);
-
-        for (const bounds of candidatesBounds) {
-            const struct = bounds.ref;
-            // Check if structure is valid, complete, belongs to the tribe, AND is a drop-off point
-            // For now, hardcode Marker and Shelter as drop-off points.
-            // Later, use struct.isDropoffPoint if added.
-            if (struct && struct.isComplete && struct.tribeId === this.tribeId && (struct.type === 'Marker' || struct.type === 'Shelter')) {
-                 const dx = struct.x - this.x;
-                 const dy = struct.y - this.y;
-                 const distanceSq = dx * dx + dy * dy;
-                 if (distanceSq < minDistanceSq) {
-                     minDistanceSq = distanceSq;
-                     nearestDropoff = struct;
-                 }
-            }
-        }
-        this.targetDropoff = nearestDropoff; // Store the found target
-        return nearestDropoff;
-    }
-
-
-    // --- Combat & Interaction ---
-
-    takeDamage(amount) {
-        if (!this.isAlive) return;
-        this.health -= amount;
-        this.damageTakenVisualTimer = 10; // Start visual flash timer
-        if (this.health <= 0) {
-            this.health = 0;
-            this.isAlive = false;
-            // TODO: Drop carried resources on death?
-            // Drop resources on death? --> Add to main.js removal logic later
-             console.log(`Tribe ${this.tribeId} creature died carrying ${this.carryingMaterial} material.`); // Log amount carried
-            this.carryingMaterial = 0; // Lose carried material
-        }
-    }
-
-    eat(foodItem) {
-         this.energy += Config.energyFromFood;
-         this.energy = Math.min(this.energy, Config.maxEnergy); // Clamp energy
-         // Eating might interrupt other actions like gathering/building/seeking dropoff
-         // State logic in update() should handle this transition if needed.
-         this.targetFood = null; // Consumed the target
-    }
-
-	isNearPoint(targetCenterX, targetCenterY, requiredDistance) {
-		const dx = this.x - targetCenterX;
-		const dy = this.y - targetCenterY;
-		const checkDistance = requiredDistance + this.size / 2;
-		return (dx * dx + dy * dy) < (checkDistance * checkDistance);
-	}
-
-    // --- Bonus Application ---
+	
+    // --- New: Apply Shelter Bonus ---
     applyShelterBonus(amount) {
+         // This flag/value will be used when calculating energy decay
          this.shelterBonus = amount;
     }
 
-    // --- Main Update Logic ---
-    update(deltaTime, foodQuadTree, creatureQuadTree, resourceQuadTree, structureList, tribeStockpiles, tribeKnowledge, tribeTech, simState) {
+	// --- Helper: World to Grid Coords (duplicated for direct access) ---
+    worldToGrid(x, y, gridW, gridH) {
+        const gridX = Math.max(0, Math.min(gridW - 1, Math.floor(x / Config.influenceCellSize)));
+        const gridY = Math.max(0, Math.min(gridH - 1, Math.floor(y / Config.influenceCellSize)));
+        return { x: gridX, y: gridY };
+    }
+
+    update(deltaTime, foodQuadTree, creatureQuadTree, resourceQuadTree, structureList, tribeStockpiles, tribeKnowledge, tribeTech, influenceGrid) { // Added Knowledge/Tech
         if (!this.isAlive) return null;
-
-        const deltaFrames = deltaTime / (1000/60); // Approximate frames passed
-
-        // --- Reset Frame-Specific States ---
-        this.shelterBonus = 0; // Reset bonus effect each frame
-
-        // --- Update Timers ---
-        if (this.attackCooldown > 0) this.attackCooldown -= deltaFrames;
-        if (this.damageTakenVisualTimer > 0) this.damageTakenVisualTimer -= deltaFrames;
-        if (this.reproductionTimer < Config.reproductionCooldown) this.reproductionTimer += deltaFrames; // Use deltaFrames
-
+		
+        // --- Reset Bonuses ---
+        this.shelterBonus = 0; // Reset bonus effect before structure effects are applied (in main loop)
+		
+        // --- Timers ---
+        if (this.attackCooldown > 0) this.attackCooldown--;
+        if (this.damageTakenVisualTimer > 0) this.damageTakenVisualTimer--;
+        this.reproductionTimer++;
+		
         // --- Passive Knowledge Generation ---
-        if (tribeKnowledge[this.tribeId] !== undefined) {
-           tribeKnowledge[this.tribeId] += Config.knowledgePerCreatureTick * simState.researchSpeedMultiplier * deltaFrames; // Scale by deltaFrames
-        } else {
-           tribeKnowledge[this.tribeId] = Config.knowledgePerCreatureTick * simState.researchSpeedMultiplier * deltaFrames;
+        tribeKnowledge[this.tribeId] = (tribeKnowledge[this.tribeId] || 0) + Config.knowledgePerCreatureTick * Config.researchSpeedMultiplier;
+		
+        // --- NEW: Get Local Influence ---
+        let currentSpeedModifier = 1.0;
+        let currentAggressionModifier = 0.0; // Additive modifier
+        const gridW = influenceGrid.length;
+        const gridH = influenceGrid[0].length;
+        const gridCoords = this.worldToGrid(this.x, this.y, gridW, gridH);
+        const localInfluence = influenceGrid[gridCoords.x][gridCoords.y];
+
+        if (localInfluence.intensity >= Config.influenceEffectThreshold) {
+            if (localInfluence.dominantTribe === this.tribeId) {
+                // Own territory bonus
+                currentSpeedModifier = Config.ownTerritorySpeedBoost;
+                currentAggressionModifier = -Config.aggressionInfluenceModifier; // Feel safer, less aggressive
+            } else if (localInfluence.dominantTribe !== -1) {
+                // Enemy territory penalty
+                currentSpeedModifier = Config.enemyTerritorySpeedPenalty;
+                currentAggressionModifier = Config.aggressionInfluenceModifier; // Feel threatened, more aggressive
+            }
         }
-
-        // --- Decision Logic (State Machine) ---
-        // Priorities: Fight > Flee (future) > Eat > Dropoff > Build > Gather > Wander
-
+        // Clamp aggression modifier effect
+        const effectiveAggression = Math.max(0, Math.min(1, this.aggression + currentAggressionModifier));
+		
+        // --- State Machine & Decision Logic ---
         let potentialEnemy = this.findEnemyTarget(creatureQuadTree);
-        let isAggressive = Math.random() < this.genes.aggression; // Keep simple aggression check
-
+        let isAggressive = Math.random() < effectiveAggression;
         let needsFood = this.energy < Config.energyThreshold;
-        let isFullOfMaterial = this.carryingMaterial >= this.maxCarryAmount;
+        let potentialFood = needsFood ? this.findNearestFood(foodQuadTree) : null;
+        let potentialBuildSite = this.findNearestBuildSite(structureList);
+        let canBuild = potentialBuildSite; // && tribeStockpiles[this.tribeId] > 0; // Basic check, refine later based on site type cost
 
-        // Determine state based on priorities
-        let previousState = this.state;
+        // --- New: Check if Shelter can be built ---
+        let canBuildShelter = tribeTech[this.tribeId]?.has('BasicConstruction'); // Check if tech researched
+         // Prioritize shelter slightly? Or have dedicated builders later?
+        // Let's just add it as an option if nothing else is pressing for now		
+		
+        let potentialResource = this.findNearestResource(resourceQuadTree);
+        let shouldGather = !needsFood && !(potentialEnemy && isAggressive) && !canBuild && potentialResource;
 
-        // --- State Determination ---
+        // Determine State based on priorities
         if (potentialEnemy && isAggressive) {
             this.state = CreatureState.SEEKING_ENEMY;
-            this.targetEnemy = potentialEnemy; // Assign target here
-            this.targetResource = null; this.targetBuildSite = null; this.targetFood = null; this.targetDropoff = null; // Clear other targets
-        }
-        else if (needsFood) {
-            if (!this.targetFood) this.findNearestFood(foodQuadTree); // Search only if no current target
-            if (this.targetFood) {
-                this.state = CreatureState.SEEKING_FOOD;
-                 this.targetEnemy = null; this.targetResource = null; this.targetBuildSite = null; this.targetDropoff = null;
-            } else {
-                // Hungry but no food found? Wander or maybe seek dropoff if carrying something?
-                if (this.carryingMaterial > 0) { // If carrying something, prioritize dropping off even if hungry and can't find food
-                     if (!this.targetDropoff) this.findNearestDropoff(structureQuadTree); // Use structureQuadTree
-                     if (this.targetDropoff) {
-                        this.state = CreatureState.SEEKING_DROPOFF;
-                        this.targetEnemy = null; this.targetResource = null; this.targetBuildSite = null; this.targetFood = null;
-                     } else {
-                         this.state = CreatureState.WANDERING; // No food, no dropoff point -> Wander
-                     }
-                } else {
-                    this.state = CreatureState.WANDERING; // No food, not carrying -> Wander
-                }
-            }
-        }
-        else if (isFullOfMaterial) { // Not hungry, but inventory is full
-             if (!this.targetDropoff) this.findNearestDropoff(structureQuadTree); // Use structureQuadTree
-             if (this.targetDropoff) {
-                 this.state = CreatureState.SEEKING_DROPOFF;
-                 this.targetEnemy = null; this.targetResource = null; this.targetBuildSite = null; this.targetFood = null;
-             } else {
-                 this.state = CreatureState.WANDERING; // Full but nowhere to drop off -> Wander
-                 // Maybe add logic later to drop resources on the ground if no dropoff exists?
-             }
-        }
-        else { // Not hungry, not full - consider building or gathering
-            let potentialBuildSite = this.findNearestBuildSite(structureList);
-            let potentialResource = this.findNearestResource(resourceQuadTree);
-
-            // Prioritize building if a site exists and we have *some* resources (or stockpile is high)
-            let currentStockpile = tribeStockpiles[this.tribeId] || 0;
-            let shouldBuild = potentialBuildSite && (!potentialResource || currentStockpile > 10 || Math.random() < 0.3); // Heuristic
-
-            if (shouldBuild) {
-                 this.state = CreatureState.BUILDING;
-                 this.targetBuildSite = potentialBuildSite; // Assign target
-                 this.targetEnemy = null; this.targetResource = null; this.targetFood = null; this.targetDropoff = null;
-            } else if (potentialResource) {
-                 this.state = CreatureState.GATHERING;
-                 this.targetResource = potentialResource; // Assign target
-                 this.targetEnemy = null; this.targetBuildSite = null; this.targetFood = null; this.targetDropoff = null;
-            } else {
-                 // Nothing specific to do, wander
+            this.targetEnemy = potentialEnemy;
+            this.targetResource = null; this.targetBuildSite = null;
+        } else if (needsFood && potentialFood) {
+            this.state = CreatureState.SEEKING_FOOD;
+            this.targetEnemy = null; this.targetResource = null; this.targetBuildSite = null;
+        } else if (canBuild) {
+            this.state = CreatureState.BUILDING;
+            this.targetBuildSite = potentialBuildSite;
+            this.targetEnemy = null; this.targetResource = null;
+        } else if (shouldGather) {
+             this.state = CreatureState.GATHERING;
+             this.targetResource = potentialResource;
+             this.targetEnemy = null; this.targetBuildSite = null;
+        } else {
+            if(this.state !== CreatureState.WANDERING) {
                  this.state = CreatureState.WANDERING;
-                 this.targetEnemy = null; this.targetResource = null; this.targetBuildSite = null; this.targetFood = null; this.targetDropoff = null;
+                 this.targetEnemy = null; this.targetResource = null; this.targetBuildSite = null;
             }
         }
 
-
-        // --- Execute State Actions & Calculate Movement ---
+        // --- Execute State Actions ---
         this.dx = 0; this.dy = 0; // Reset movement intention for this frame
 
+		const currentSpeed = this.speed * currentSpeedModifier;
+		 
         switch (this.state) {
             case CreatureState.SEEKING_ENEMY:
             case CreatureState.FIGHTING:
                 if (this.targetEnemy && this.targetEnemy.isAlive) {
                      const enemy = this.targetEnemy;
-                     const dxToEnemy = enemy.x - this.x;
-                     const dyToEnemy = enemy.y - this.y;
-                     const distanceSq = dxToEnemy * dxToEnemy + dyToEnemy * dyToEnemy;
+                     const dx = enemy.x - this.x;
+                     const dy = enemy.y - this.y;
+                     const distanceSq = dx * dx + dy * dy;
                      const requiredAttackDistSq = (this.attackReach + enemy.size / 2)**2;
 
                      if (distanceSq <= requiredAttackDistSq) {
-                         this.state = CreatureState.FIGHTING; // Correct state if in range
+                         this.state = CreatureState.FIGHTING;
                          if (this.attackCooldown <= 0) {
                              enemy.takeDamage(this.attackDamage);
                              this.attackCooldown = Config.attackCooldownTime;
-                             // Add small recoil/pushback maybe? (optional)
                          }
-                         // dx/dy remain 0 (stay engaged)
                      } else {
-                         // Move towards enemy if out of range
                          this.state = CreatureState.SEEKING_ENEMY;
                          const distance = Math.sqrt(distanceSq);
-                         if (distance > 0) {
-                            this.dx = (dxToEnemy / distance) * this.speed;
-                            this.dy = (dyToEnemy / distance) * this.speed;
-                         }
+                         this.dx = (dx / distance) * this.speed;
+                         this.dy = (dy / distance) * this.speed;
                      }
                 } else {
-                    // Target died or disappeared
                     this.state = CreatureState.WANDERING;
-                    this.targetEnemy = null;
+                    this.targetEnemy = null; // Clear dead/lost target
                 }
                 break;
 
             case CreatureState.SEEKING_FOOD:
-                if (this.targetFood) { // Use stored targetFood
-                     const targetX = this.targetFood.x + this.targetFood.width / 2;
-                     const targetY = this.targetFood.y + this.targetFood.height / 2;
-                     const dxToFood = targetX - this.x;
-                     const dyToFood = targetY - this.y;
-                     const distance = Math.sqrt(dxToFood * dxToFood + dyToFood * dyToFood);
-                     const eatDistance = this.size / 2 + this.targetFood.size / 2;
-
-                     if (distance > eatDistance) { // Move only if not close enough to eat
-                         this.dx = (dxToFood / distance) * this.speed;
-                         this.dy = (dyToFood / distance) * this.speed;
+                if (potentialFood) {
+                     const targetX = potentialFood.x + potentialFood.width / 2;
+                     const targetY = potentialFood.y + potentialFood.height / 2;
+                     const dx = targetX - this.x;
+                     const dy = targetY - this.y;
+                     const distance = Math.sqrt(dx * dx + dy * dy);
+                     if (distance > this.size / 2 + potentialFood.size / 2 + 2) {
+                         this.dx = (dx / distance) * currentSpeed;
+                         this.dy = (dy / distance) * currentSpeed;
                      } else {
-                         // Close enough, stop moving (dx, dy remain 0)
-                         // Eating interaction handled in main loop collision phase based on proximity
-                     }
+                         // Close enough, stop moving towards it (will eat in main loop interaction phase)
+                         this.dx = 0;
+                         this.dy = 0;
+						 }
                  } else {
-                     this.state = CreatureState.WANDERING; // Target disappeared
+                     this.state = CreatureState.WANDERING;
                  }
                 break;
 
-            case CreatureState.GATHERING:
+             case CreatureState.GATHERING:
                 if (this.targetResource && !this.targetResource.isEmpty()) {
                      const node = this.targetResource;
                      const nodeCenterX = node.x + node.width / 2;
                      const nodeCenterY = node.y + node.height / 2;
-                     const dxToNode = nodeCenterX - this.x;
-                     const dyToNode = nodeCenterY - this.y;
-                     const distanceSq = dxToNode * dxToNode + dyToNode * dyToNode;
-                     const gatherDist = this.size / 2 + node.size / 2 + 5; // Interaction distance
-                     const gatherDistSq = gatherDist * gatherDist;
+                     const dx = nodeCenterX - this.x;
+                     const dy = nodeCenterY - this.y;
+                     const distanceSq = dx * dx + dy * dy;
+                     const gatherDistSq = (this.size / 2 + node.size / 2 + 5)**2;
 
                      if (distanceSq <= gatherDistSq) {
-                         // Within range - Stop moving, start gathering timer
-                         this.gatherTimer += deltaFrames; // Accumulate time based on deltaFrames
+                         this.gatherTimer++;
                          if (this.gatherTimer >= Config.gatherTime) {
                              const gathered = node.gather();
                              if (gathered > 0) {
-                                 // --- Add to carrying amount ---
-                                 const canCarryMore = this.maxCarryAmount - this.carryingMaterial;
-                                 const amountToTake = Math.min(gathered, canCarryMore);
-                                 this.carryingMaterial += amountToTake;
-                                 // TODO: If gathered > amountToTake, the resource node should retain the difference?
-                                 // Current node.gather() doesn't support partial takes easily. Assume full gatherAmount is taken for now.
+                                 tribeStockpiles[this.tribeId] = (tribeStockpiles[this.tribeId] || 0) + gathered;
                              }
-                             this.gatherTimer = 0; // Reset timer
-
-                             // Check if full or node is empty
-                             if (this.carryingMaterial >= this.maxCarryAmount || node.isEmpty()) {
-                                 this.targetResource = null; // Forget this node
-                                 // If carrying something, seek dropoff, otherwise wander
-                                 this.state = this.carryingMaterial > 0 ? CreatureState.SEEKING_DROPOFF : CreatureState.WANDERING;
+                             this.gatherTimer = 0;
+                             if (node.isEmpty()) {
+                                 this.state = CreatureState.WANDERING;
+                                 this.targetResource = null;
                              }
                          }
-                         // dx/dy remain 0 while gathering
                      } else {
-                         // Out of range - Move towards node
                          const distance = Math.sqrt(distanceSq);
-                         if (distance > 0) {
-                            this.dx = (dxToNode / distance) * this.speed;
-                            this.dy = (dyToNode / distance) * this.speed;
-                         }
-                         this.gatherTimer = 0; // Reset timer if moving
+                         this.dx = (dx / distance) * currentSpeed;
+                         this.dy = (dy / distance) * currentSpeed
+                         this.gatherTimer = 0;
                      }
                 } else {
-                    // Resource depleted by someone else or disappeared
-                    this.state = this.carryingMaterial > 0 ? CreatureState.SEEKING_DROPOFF : CreatureState.WANDERING;
-                    this.targetResource = null;
+                    this.state = CreatureState.WANDERING;
+                    this.targetResource = null; // Clear depleted/lost target
                 }
                 break;
-
-            // --- NEW STATE LOGIC ---
-            case CreatureState.SEEKING_DROPOFF:
-                if (!this.targetDropoff || !this.targetDropoff.isComplete || this.targetDropoff.tribeId !== this.tribeId) {
-                     // Target is invalid, find a new one
-                     this.findNearestDropoff(structureQuadTree); // Pass quadtree
-                }
-
-                if (this.targetDropoff) { // Check if a valid target was found/exists
-                    const site = this.targetDropoff;
-                    const dxToSite = site.x - this.x;
-                    const dyToSite = site.y - this.y;
-                    const distanceSq = dxToSite * dxToSite + dyToSite * dyToSite;
-                    const dropDist = this.size / 2 + site.size / 2 + 5; // Interaction distance
-                    const dropDistSq = dropDist * dropDist;
-
-                    if (distanceSq <= dropDistSq) {
-                        // Within range - Drop off resources
-                        if (tribeStockpiles[this.tribeId] !== undefined) {
-                            tribeStockpiles[this.tribeId] += this.carryingMaterial;
-                        } else {
-                            tribeStockpiles[this.tribeId] = this.carryingMaterial; // Initialize if needed
-                        }
-                        console.log(`Tribe ${this.tribeId} creature deposited ${this.carryingMaterial} material.`);
-                        this.carryingMaterial = 0;
-                        this.targetDropoff = null;
-                        this.state = CreatureState.WANDERING; // Switch state after dropping off
-                        // dx/dy remain 0 for this frame
-                    } else {
-                        // Out of range - Move towards dropoff site
-                        const distance = Math.sqrt(distanceSq);
-                         if (distance > 0) {
-                            this.dx = (dxToSite / distance) * this.speed;
-                            this.dy = (dyToSite / distance) * this.speed;
-                         }
-                    }
-                } else {
-                    // No dropoff point found for this tribe
-                    this.state = CreatureState.WANDERING; // Give up and wander (still carrying)
-                }
-                break;
-            // --- END NEW STATE LOGIC ---
-
 
              case CreatureState.BUILDING:
-                // Build logic remains largely the same for now
                 if (this.targetBuildSite && !this.targetBuildSite.isComplete) {
                      const site = this.targetBuildSite;
-                     const dxToSite = site.x - this.x;
-                     const dyToSite = site.y - this.y;
-                     const distanceSq = dxToSite * dxToSite + dyToSite * dyToSite;
-                     const buildDist = this.size / 2 + site.size / 2 + 5;
-                     const buildDistSq = buildDist * buildDist;
+					 const currentStockpile = tribeStockpiles[this.tribeId] || 0;
+                     const costPerTick = 1 / Config.buildTime;
+					 
+                     const dx = site.x - this.x;
+                     const dy = site.y - this.y;
+                     const distanceSq = dx * dx + dy * dy;
+                     const buildDistSq = (this.size / 2 + site.size / 2 + 5)**2;
 
                      if (distanceSq <= buildDistSq) {
-                         // Within range - Stop moving, contribute to building
-                         this.buildTimer += deltaFrames;
-                         // Build rate could be faster (e.g., build(deltaFrames)?)
-                         if (this.buildTimer >= 1) { // Progress based on frames for now
-                              site.build(1); // Increment build progress
-                              this.buildTimer = 0; // Reset timer? Or allow continuous progress? Let's reset for discrete progress steps.
-                         }
-
-                         if (site.isComplete) {
-                              this.state = CreatureState.WANDERING;
-                              this.targetBuildSite = null;
-                         }
-                         // dx/dy remain 0
+                        // Build only needs proximity, resource check done in decision phase
+						this.dx = 0; this.dy = 0;
+                        this.buildTimer++;
+						const buildAmount = 1; // Each creature contributes 1 unit of "build effort" per frame at site
+                         site.build(buildAmount);
+                         this.buildTimer = 0; // Reset timer (not really used now, build() handles progress)
+                        
+						if (site.isComplete) {
+                             this.state = CreatureState.WANDERING;
+                             this.targetBuildSite = null;
+                        }
+                        // Note: If tribe runs out of resources mid-build, creature will switch state in the *next* frame's decision phase.
                      } else {
-                         // Out of range - Move towards site
                          const distance = Math.sqrt(distanceSq);
-                         if(distance > 0) {
-                            this.dx = (dxToSite / distance) * this.speed;
-                            this.dy = (dyToSite / distance) * this.speed;
-                         }
-                         this.buildTimer = 0; // Reset build timer if moving
+                         this.dx = (dx / distance) * currentSpeed;
+                         this.dy = (dy / distance) * currentSpeed;
+                         this.buildTimer = 0;
                      }
                  } else {
-                     // Site completed by someone else or disappeared
                      this.state = CreatureState.WANDERING;
-                     this.targetBuildSite = null;
+                     this.targetBuildSite = null; // Clear completed/lost target
                  }
                  break;
 
             case CreatureState.WANDERING:
             case CreatureState.IDLE:
-                 // Simple wandering: occasional random impulse
-                 if (Math.random() < 0.05) {
-                     const angle = Math.random() * Math.PI * 2;
-                     // Apply impulse relative to current speed allowance
-                     this.dx = Math.cos(angle) * this.speed;
-                     this.dy = Math.sin(angle) * this.speed;
-                  } else {
-                      // Dampen movement slightly if no impulse
-                      this.dx *= 0.95;
-                      this.dy *= 0.95;
+                if (Math.random() < 0.05 || (this.dx === 0 && this.dy === 0)) {
+                     this.dx = (Math.random() - 0.5) * 2; // More robust random direction
+                     this.dy = (Math.random() - 0.5) * 2;
+					 const mag = Math.sqrt(this.dx * this.dx + this.dy * this.dy);
+                     if (mag > 0) {
+                        // Use modified speed
+                        this.dx = (this.dx / mag) * currentSpeed;
+                        this.dy = (this.dy / mag) * currentSpeed;
+                     }
                   }
-                  // Ensure minimum movement speed if wandering? Optional.
-                 // if (Math.abs(this.dx) < 0.1 && Math.abs(this.dy) < 0.1) {
-                 //     this.dx = (Math.random() - 0.5) * 0.2 * this.speed;
-                 //     this.dy = (Math.random() - 0.5) * 0.2 * this.speed;
-                 // }
+                     //this.normalizeMovement();
+                  // Apply slight deceleration only if wandering
+                  this.dx *= 0.98;
+                  this.dy *= 0.98;
                 break;
         }
+		
+        // Apply final movement
+        this.x += this.dx;
+        this.y += this.dy;
 
+        // --- Boundary Wrap --- 
+        if (this.x < 0) this.x += Config.canvasWidth;
+        if (this.x >= Config.canvasWidth) this.x -= Config.canvasWidth;
+        if (this.y < 0) this.y += Config.canvasHeight;
+        if (this.y >= Config.canvasHeight) this.y -= Config.canvasHeight;
 
-        // --- Apply Energy Decay ---
+        // --- Energy Decay ---
         const baseDecay = this.energyDecay;
-        const movementMagnitude = Math.sqrt(this.dx * this.dx + this.dy * this.dy);
-        const movementFactor = this.speed > 0 ? Math.min(1, movementMagnitude / this.speed) : 0;
+		const actualMovement = Math.sqrt(this.dx*this.dx + this.dy*this.dy);
+        const movementFactor = actualMovement / (this.speed); // Normalize by base speed
         const combatFactor = (this.state === CreatureState.FIGHTING || this.state === CreatureState.SEEKING_ENEMY) ? 0.2 : 0;
-        // --- Add energy cost for carrying resources ---
-        const carryingFactor = this.carryingMaterial > 0 ? (0.1 * (this.carryingMaterial / this.maxCarryAmount)) : 0; // Cost proportional to how full
-        const actionFactor = (this.state === CreatureState.GATHERING || this.state === CreatureState.BUILDING) ? 0.1 : 0;
-
-        const effectiveDecayRate = Math.max(0, baseDecay * (1 + movementFactor * 0.5 + combatFactor + actionFactor + carryingFactor) - this.shelterBonus);
-        this.energy -= effectiveDecayRate * deltaFrames;
+        const actionFactor = (this.state === CreatureState.GATHERING && this.gatherTimer > 0) || (this.state === CreatureState.BUILDING && this.dx === 0 && this.dy === 0) ? 0.1 : 0; // Only if actually working
+        
+		// Apply shelter bonus here
+        const effectiveDecayRate = Math.max(0, baseDecay * (1 + movementFactor*0.5 + combatFactor + actionFactor) - this.shelterBonus) 
+        this.energy -= effectiveDecayRate;
 
 
         // --- Check for Starvation Death ---
-        if (this.energy <= 0) {
-            this.takeDamage(this.maxHealth + 1); // Inflict lethal damage if starving
+        if (this.energy <= 0 && this.isAlive) {
+            this.isAlive = false;
+            console.log(`Tribe ${this.tribeId} creature starved.`);
         }
 
         // --- Reproduction ---
-        // Check against simState population cap for the specific tribe? Or global cap? Global for now.
-        if (this.energy >= Config.reproductionEnergyThreshold && this.reproductionTimer >= Config.reproductionCooldown) {
-             // Check global population cap from simState
-             const currentPopulation = creatureQuadTree.retrieve({x:0,y:0,width:Config.canvasWidth, height:Config.canvasHeight}).length; // Approx count
-             if (currentPopulation < simState.maxPopulation) {
-                this.energy -= Config.reproductionEnergyCost;
-                this.reproductionTimer = 0;
-                const offspringX = this.x + (Math.random() - 0.5) * 20;
-                const offspringY = this.y + (Math.random() - 0.5) * 20;
-
-                // Pass current simState aggression and create offspring
-                let offspring = new Creature(offspringX, offspringY, Config.offspringInitialEnergy, this.genes, this.tribeId, simState.baseAggression);
-                // Offspring immediately mutates using simState rates
-                offspring.mutate(simState.mutationRate, simState.mutationAmount);
-                return offspring;
-             } else {
-                 // Population cap reached, reset timer slightly maybe?
-                 this.reproductionTimer = Config.reproductionCooldown * 0.8; // Don't try again immediately
-             }
+        if (this.isAlive && this.energy >= Config.reproductionEnergyThreshold && this.reproductionTimer >= Config.reproductionCooldown) {
+             this.energy -= Config.reproductionEnergyCost;
+             this.reproductionTimer = 0;
+             const offspringX = this.x + (Math.random() - 0.5) * 20;
+             const offspringY = this.y + (Math.random() - 0.5) * 20;
+            return new Creature(offspringX, offspringY, Config.offspringInitialEnergy, this.genes, this.tribeId);
         }
 
-        return null; // No offspring produced
+		if (this.isAlive && this.energy >= Config.reproductionEnergyThreshold && this.reproductionTimer >= Config.reproductionCooldown) {
+             this.energy -= Config.reproductionEnergyCost;
+             this.reproductionTimer = 0;
+             const offspringX = this.x + (Math.random() - 0.5) * 20;
+             const offspringY = this.y + (Math.random() - 0.5) * 20;
+            // Wrap offspring position immediately
+            const wrappedX = (offspringX % Config.canvasWidth + Config.canvasWidth) % Config.canvasWidth;
+            const wrappedY = (offspringY % Config.canvasHeight + Config.canvasHeight) % Config.canvasHeight;
+            return new Creature(wrappedX, wrappedY, Config.offspringInitialEnergy, this.genes, this.tribeId);
+        }
+		
+        return null;
     }
 
+    isNear(targetX, targetY, targetW, targetH, distance) {
+        const targetCenterX = targetX + targetW / 2;
+        const targetCenterY = targetY + targetH / 2;
+        const dx = this.x - targetCenterX;
+        const dy = this.y - targetCenterY;
+        // Use distance provided + radius sum as effective check distance
+        const effectiveDistance = distance + this.size / 2 + Math.max(targetW, targetH) / 2;
+        return (dx * dx + dy * dy) < (effectiveDistance * effectiveDistance);
+    }
 
-    // --- Drawing Method ---
+    eat(foodItem) {
+         this.energy += Config.energyFromFood;
+         if (this.energy > Config.maxEnergy) {
+             this.energy = Config.maxEnergy;
+         }
+    }
+
     draw(ctx) {
          if (!this.isAlive) return;
 
-         // --- Determine Draw Color ---
+         // Damage Flash Effect
          let drawColor = this.color;
          if (this.damageTakenVisualTimer > 0) {
-             const flashIntensity = Math.sin((10 - this.damageTakenVisualTimer) * Math.PI / 10);
-             const flashLightness = 60 + flashIntensity * 30;
-             drawColor = `hsl(0, 100%, ${flashLightness}%)`;
+             const flashAmount = this.damageTakenVisualTimer / 10;
+             drawColor = `hsl(0, 100%, ${60 + flashAmount * 30}%)`;
          }
 
-         // --- Draw Main Body (Circle) ---
+         // Draw main body
          ctx.fillStyle = drawColor;
          ctx.beginPath();
          ctx.arc(this.x, this.y, this.size / 2, 0, Math.PI * 2);
          ctx.fill();
 
-         // --- Draw Reproduction Indicator ---
+         // Reproduction indicator
          if (this.energy >= Config.reproductionEnergyThreshold && this.reproductionTimer >= Config.reproductionCooldown) {
              ctx.strokeStyle = 'white';
              ctx.lineWidth = 1;
+             // Draw border - needs arc path again
              ctx.beginPath();
-             ctx.arc(this.x, this.y, this.size / 2 + 1, 0, Math.PI * 2); // Slightly larger circle
+             ctx.arc(this.x, this.y, this.size / 2, 0, Math.PI * 2);
              ctx.stroke();
          }
 
-         // --- NEW: Draw Carrying Indicator ---
-         if (this.carryingMaterial > 0) {
-             const fullness = this.carryingMaterial / this.maxCarryAmount;
-             ctx.fillStyle = 'rgba(160, 82, 45, 0.7)'; // Brownish overlay (SaddleBrown with alpha)
-             ctx.beginPath();
-             // Draw a partial arc representing fullness, centered inside
-             ctx.arc(this.x, this.y, this.size * 0.3, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * fullness) );
-             //ctx.lineTo(this.x, this.y); // Make it a pie wedge? Or just arc? Let's try arc+fill.
-             //ctx.closePath(); // Not needed for arc fill
-             // --- Draw a small circle representing carrying ---
-             ctx.arc(this.x, this.y, this.size * 0.3 * fullness, 0, Math.PI * 2);
-             ctx.fill();
-         }
-
-
-         // --- Draw Status Bars ---
-         const barWidth = Math.max(10, this.size * 1.2);
+         // Health and Energy Bars
+         const barWidth = this.size * 1.2;
+         const energyBarY = this.y + this.size / 2 + 2;
+         const healthBarY = energyBarY + 4;
          const barHeight = 3;
-         const energyBarYOffset = this.size / 2 + 2;
-         const healthBarYOffset = energyBarYOffset + barHeight + 1;
 
          // Energy Bar
+         const energyPercent = this.energy / Config.maxEnergy;
          ctx.fillStyle = '#555';
-         ctx.fillRect(this.x - barWidth / 2, this.y + energyBarYOffset, barWidth, barHeight);
+         ctx.fillRect(this.x - barWidth / 2, energyBarY, barWidth, barHeight);
          ctx.fillStyle = 'lime';
-         ctx.fillRect(this.x - barWidth / 2, this.y + energyBarYOffset, barWidth * Math.max(0, this.energy / Config.maxEnergy), barHeight);
+         ctx.fillRect(this.x - barWidth / 2, energyBarY, barWidth * energyPercent, barHeight);
 
          // Health Bar
+         const healthPercent = this.health / this.maxHealth;
          ctx.fillStyle = '#500';
-         ctx.fillRect(this.x - barWidth / 2, this.y + healthBarYOffset, barWidth, barHeight);
+         ctx.fillRect(this.x - barWidth / 2, healthBarY, barWidth, barHeight);
          ctx.fillStyle = 'red';
-         ctx.fillRect(this.x - barWidth / 2, this.y + healthBarYOffset, barWidth * Math.max(0, this.health / this.maxHealth), barHeight);
+         ctx.fillRect(this.x - barWidth / 2, healthBarY, barWidth * healthPercent, barHeight);
 
-         // --- Draw State Indicator ---
+         // State border indicator
          let stateBorderColor = null;
+		 let stateLineWidth = 1.5;
          switch(this.state) {
-             case CreatureState.FIGHTING: stateBorderColor = 'orange'; break;
+             case CreatureState.FIGHTING: stateBorderColor = 'orange'; stateLineWidth = 2; break;
              case CreatureState.GATHERING: stateBorderColor = 'brown'; break;
              case CreatureState.BUILDING: stateBorderColor = 'cyan'; break;
-             case CreatureState.SEEKING_ENEMY: stateBorderColor = 'yellow'; break;
-             case CreatureState.SEEKING_DROPOFF: stateBorderColor = '#A9A9A9'; break; // DarkGray for seeking dropoff
          }
-         if (stateBorderColor) {
+          if (stateBorderColor) {
                ctx.strokeStyle = stateBorderColor;
-               ctx.lineWidth = 1.5;
+               ctx.lineWidth = stateLineWidth;
                ctx.beginPath();
                ctx.arc(this.x, this.y, this.size / 2 + 1.5, 0, Math.PI * 2);
                ctx.stroke();

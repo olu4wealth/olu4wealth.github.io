@@ -54,8 +54,8 @@ export const startingResourceNodes = 30;
 export const materialPerNode = 50; // Amount of 'material' in each node
 export const gatherAmount = 1;     // Material gathered per 'tick' or action
 export const gatherTime = 30;      // Frames/updates required to gather one unit
-export const markerCost = { material: 10 }; // Cost for a tribal marker
-export const markerBuildTime = 100;      // Frames/updates needed to build a Marker
+export const markerCost = 25;      // Material cost for a Tribal Marker
+export const buildTime = 150;      // Frames/updates needed to build a Marker
 
 // --- Structure Specifics ---
 export const shelterCost = { material: 40 }; // Shelter costs materials
@@ -64,22 +64,24 @@ export const shelterSize = 20;
 export const shelterEffectRadius = 50;      // How far the shelter's effect reaches
 export const shelterEnergySave = 0.02;    // Amount of energy decay reduced nearby
 
-export const farmCost = { material: 60 }; // Example cost
-export const farmBuildTime = 250;
-export const farmSize = 25;
-export const farmFoodGenerationRate = 0.05; // Food units per frame
-export const wallCost = { material: 15 }; // Walls are relatively cheap but numerous
+// NEW: Wall Stats
+export const wallCost = { material: 15 }; // Cheaper per segment
 export const wallBuildTime = 100;
-export const wallSegmentSize = 10; // How wide/tall a single wall segment is
-export const wallHealth = 100;
+export const wallSize = 12; // Make them slightly smaller grid-like?
+export const wallHealth = 150; // Tougher than basic creatures
 
-export const towerCost = { material: 50, knowledge: 20 }; // Towers cost more
+// NEW: Tower Stats
+export const towerCost = { material: 75 }; // Expensive
 export const towerBuildTime = 300;
 export const towerSize = 18;
-export const towerHealth = 150;
-export const towerAttackDamage = 4;
-export const towerAttackRange = 100;
-export const towerAttackCooldown = 90; // Slower than creatures maybe
+export const towerHealth = 250;
+export const towerInfluenceRate = 3.5; // High influence anchor
+export const towerInfluenceRadius = 85;
+export const towerAttackDamage = 8;
+export const towerAttackRange = 120; // Needs to be decent
+export const towerAttackCooldown = 90; // Frames between shots
+export const towerTargetingScanRate = 15; // How often (in frames) the tower scans for targets
+
 
 // --- Knowledge & Tech ---
 export const knowledgePerCreatureTick = 0.001; // Passive Knowledge gain per creature per frame (can link to Intelligence later)
@@ -89,23 +91,39 @@ export const techTree = {
         name: 'Basic Construction',
         cost: { knowledge: 50 }, // Cost in Knowledge
         prereqs: [],             // No prerequisites for the first tech
-        unlocks: ['Shelter']     // What building does it unlock?
+        unlocks: ['Shelter', 'Marker']     // What building does it unlock?
     },
-	
-    'Agriculture': {
-        name: 'Agriculture',
-        cost: { knowledge: 100 }, // Example cost
-        prereqs: [], // Or ['BasicConstruction'] ?
-        unlocks: ['Farm']
-    },
+	// NEW Tech
     'BasicDefenses': {
         name: 'Basic Defenses',
-        cost: { knowledge: 75 }, // Example cost
+        cost: { knowledge: 100 }, // More expensive
         prereqs: ['BasicConstruction'], // Requires basic building knowledge
-        unlocks: ['Wall', 'GuardTower']
-    },
+        unlocks: ['Wall', 'Tower'] // Unlocks both Walls and Towers
+    }
+    // Add more techs later: 'BasicTools', 'Walls', etc.
 };
 
+// --- NEW: Influence & Essence System ---
+export const influenceCellSize = 10; // Size of each grid cell for influence map (pixels)
+export const maxInfluence = 100;    // Maximum intensity value in a cell
+export const influenceDecayRate = 0.99; // Multiplier per frame (e.g., 0.99 means 1% decay)
+
+export const creatureInfluenceRate = 0.5; // Influence generated per creature per frame
+export const creatureInfluenceRadius = 40;  // Radius creature affects (pixels)
+
+// Structures generate more influence
+export const markerInfluenceRate = 1.0;
+export const markerInfluenceRadius = 50;
+export const shelterInfluenceRate = 2.5;
+export const shelterInfluenceRadius = 75;
+
+export const influenceColorAlphaMax = 0.25; // Max alpha for the visual influence layer
+
+// Gameplay effects of influence
+export const ownTerritorySpeedBoost = 1.15;   // Speed multiplier in own strong influence
+export const enemyTerritorySpeedPenalty = 0.85; // Speed multiplier in enemy strong influence
+export const influenceEffectThreshold = maxInfluence * 0.3; // Intensity needed for effects to apply
+export const aggressionInfluenceModifier = 0.2; // How much influence affects aggression (adds/subtracts from base)
 
 // --- Quadtree Settings ---
 export const quadtreeCapacity = 4; // Max items per node before splitting

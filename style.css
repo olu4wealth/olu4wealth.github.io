@@ -1,147 +1,23 @@
-/* --- START OF style.css --- */
-
 body {
     margin: 0; /* Remove default spacing */
+    overflow: hidden; /* Prevent scrollbars if canvas fits */
     background-color: #1a1a1a; /* Dark background */
-    display: flex; /* Use flexbox for layout */
-    /* Default: Align items side-by-side */
-    flex-direction: row;
-    align-items: flex-start; /* Align items at the top */
-    /* Ensure body takes at least full viewport height */
-    min-height: 100vh;
-    /* --- REMOVED overflow: hidden; from default --- */
+    display: flex; /* Arrange canvas and panel */
+    align-items: flex-start; 
 }
 
 #mainCanvas {
     border: 1px solid #555; /* Make canvas boundary visible */
     display: block; /* Ensure it behaves as a block element */
-    /* --- Add visual scaling (important for both desktop resize and mobile) --- */
-    max-width: 100%; /* Prevent canvas from visually overflowing its container */
-    height: auto;   /* Maintain aspect ratio when visually scaling */
-    /* You might want to set a max-width matching the actual canvas width */
-    /* max-width: 800px; */ /* Uncomment if needed */
 }
 
 #controlPanel {
-    /* Default width for side panel */
-    width: 250px;
-    padding: 15px;
+    width: 200px; /* Example width */
+    padding: 10px;
     background-color: #2a2a2a;
     color: #eee;
-    /* Default margin for side panel */
     margin-left: 10px;
     border: 1px solid #555;
-    /* Default height matching canvas (or adjust as needed) */
-    /* Use max-height and overflow for consistent behavior */
-    max-height: 600px; /* Match canvas height or desired max */
-    overflow-y: auto; /* Allow internal scrolling */
-    font-family: sans-serif;
-    font-size: 13px;
-    /* Prevent panel from shrinking in the default row layout */
-    flex-shrink: 0;
+    height: 598px; /* Match canvas height minus borders */
+    overflow-y: auto; /* Add scroll if content exceeds height */
 }
-
-#controlPanel h3, #controlPanel h4 {
-    margin-top: 15px;
-    margin-bottom: 5px;
-    color: #aaa;
-    border-bottom: 1px solid #444;
-    padding-bottom: 3px;
-}
-#controlPanel h3:first-child { margin-top: 0; }
-
-.control-group {
-    margin-bottom: 12px;
-    display: flex;
-    flex-wrap: wrap; /* Allow wrapping */
-    align-items: center;
-}
-
-.control-group label {
-    display: block;
-    margin-bottom: 3px;
-    color: #ccc;
-    width: 100%; /* Make label take full width by default */
-}
-
-.control-group input[type="range"] {
-    flex-grow: 1; /* Allow slider to take available space */
-    margin-right: 10px;
-    height: 5px;
-    cursor: pointer;
-}
-
-.control-group span {
-    min-width: 35px; /* Ensure space for value */
-    text-align: right;
-    font-weight: bold;
-    color: lightblue;
-}
-
- .control-group button {
-     padding: 3px 8px;
-     margin-left: auto; /* Push button to the right */
-     cursor: pointer;
-     background-color: #444;
-     border: 1px solid #666;
-     color: #eee;
- }
- .control-group button:hover {
-     background-color: #555;
- }
- .control-group button.active {
-      background-color: #363;
-      border-color: #585;
- }
-
-/* =================================== */
-/* --- MOBILE RESPONSIVE STYLES --- */
-/* =================================== */
-/* Apply these styles when screen width is 768px or less */
-@media (max-width: 768px) {
-    body {
-        /* Stack elements vertically */
-        flex-direction: column;
-        /* Center items horizontally in the column */
-        align-items: center;
-        /* --- FIX: Explicitly set body overflow for mobile --- */
-        overflow-y: auto; /* Allow the whole body to scroll vertically if needed */
-        overflow-x: hidden; /* Prevent horizontal scrolling */
-    }
-
-    #mainCanvas {
-        /* Make canvas take most of the width, centered */
-        width: 98%;
-        /* Optional: prevent stretching beyond original if desired */
-        /* max-width: 800px; */
-        height: auto; /* Maintain aspect ratio */
-        margin-top: 10px; /* Add some space above the canvas */
-        order: 1; /* Explicitly place canvas first (default anyway) */
-        border: none; /* Optional: remove border on mobile */
-    }
-
-    #controlPanel {
-        order: 2; /* Explicitly place control panel second */
-        width: 95%; /* Make panel take most of the width */
-        max-width: 600px; /* Optional: Limit max width on tablets */
-        /* Replace left margin with top/bottom margin and center horizontally */
-        margin: 15px auto 20px auto; /* Added more bottom margin */
-        /* Let height adjust, but limit it and allow scroll */
-        height: auto;
-        max-height: 50vh; /* INCREASED max-height slightly */
-        overflow-y: auto; /* Ensure internal scrolling is enabled */
-        flex-shrink: 1; /* Allow shrinking if needed */
-    }
-
-    /* Optional: Adjust controls for better touch targets / layout */
-    .control-group label {
-        width: auto; /* Allow label and slider side-by-side */
-        margin-right: 10px;
-        margin-bottom: 0;
-    }
-    .control-group button {
-         margin-left: 10px; /* Adjust button margin if needed */
-    }
-}
-
-/* --- END OF style.css --- */
